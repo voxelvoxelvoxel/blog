@@ -1,2 +1,124 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>My Blog</title><link>https://voxelvoxelvoxel.github.io/blog/</link><description>Recent content on My Blog</description><generator>Hugo -- 0.153.3</generator><language>en-us</language><lastBuildDate>Fri, 26 Dec 2025 22:24:01 -0800</lastBuildDate><atom:link href="https://voxelvoxelvoxel.github.io/blog/index.xml" rel="self" type="application/rss+xml"/><item><title>Helloworld</title><link>https://voxelvoxelvoxel.github.io/blog/docs/helloworld/</link><pubDate>Fri, 26 Dec 2025 22:24:01 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/docs/helloworld/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped"></content></item><item><title>Helloworld</title><link>https://voxelvoxelvoxel.github.io/blog/posts/helloworld/</link><pubDate>Fri, 26 Dec 2025 22:24:01 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/posts/helloworld/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped">&lt;p>This is my first blog post!&lt;/p>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>My Blog</title><link>https://voxelvoxelvoxel.github.io/blog/</link><description>Recent content on My Blog</description><generator>Hugo -- 0.155.2</generator><language>en-us</language><lastBuildDate>Mon, 02 Feb 2026 09:40:44 -0800</lastBuildDate><atom:link href="https://voxelvoxelvoxel.github.io/blog/index.xml" rel="self" type="application/rss+xml"/><item><title>Inference</title><link>https://voxelvoxelvoxel.github.io/blog/posts/inference/</link><pubDate>Mon, 02 Feb 2026 09:40:44 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/posts/inference/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped"><![CDATA[<p>It’s February 2, and we are living in what Andrej Karpathy has coined <em>Software 2.0</em>.</p>
+<p>Linus Torvalds has spoken positively about “vibe coding.”</p>
+<p><img src="linus-vibe-coding.png" alt="Linus Torvalds on vibe coding"></p>
+<p>Tools like Claude Code have become default companions for many solopreneurs building and shipping products.</p>
+<p>This is a fundamental change in how software is produced.</p>
+<p>Developers are now burning thousands of dollars’ worth of tokens to vibe code the next billion-dollar app. As a result, token usage and compute cost have become hot topics of debate across the developer community.</p>
+<p>But it’s not clear that any of these numbers reflect what is actually happening under the hood.</p>
+<p>To answer these questions, we need to look at inference.</p>
+<hr>
+<h2 id="what-is-inference">What Is Inference?<a href="#what-is-inference" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<p>When you send a prompt to a language model, you are not “querying a database” or “looking up an answer.” You are triggering a forward pass through a very large neural network.</p>
+<p>This process is called inference.</p>
+<p>Inference is the stage where a trained model takes input tokens and produces output tokens. It is where GPUs spend most of their time and where most of the real cost of AI systems lives.</p>
+<p>At a high level, inference has two parts:</p>
+<ul>
+<li><strong>Prefill</strong>: processing the entire prompt and building internal state</li>
+<li><strong>Generation</strong>: producing new tokens one by one</li>
+</ul>
+<p>Naively, both of these steps are expensive. Large prompts require large amounts of attention computation. Long conversations require repeatedly processing growing contexts.</p>
+<p>Without optimization, serving modern language models at scale would be prohibitively slow and expensive.</p>
+<p>This is where inference engines come in.</p>
+<hr>
+<h2 id="inference-at-scale-and-vllm">Inference at Scale and vLLM<a href="#inference-at-scale-and-vllm" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<p>In practice, production AI systems do not run models directly through raw deep learning frameworks. They use specialized inference engines that are designed to maximize throughput and minimize wasted computation.</p>
+<p>One of the most widely used open-source engines is vLLM.</p>
+<p>vLLM is not a model. It is a high-performance runtime for serving language models. Its purpose is to make inference efficient by:</p>
+<ul>
+<li>reusing cached computation</li>
+<li>batching requests dynamically</li>
+<li>managing GPU memory intelligently</li>
+<li>minimizing redundant work</li>
+</ul>
+<p>Most importantly for this discussion, vLLM implements aggressive prefix and KV caching. When multiple requests share the same prompt prefix, vLLM can reuse previously computed attention states instead of recomputing them from scratch.</p>
+<p>In other words, if two prompts look mostly the same, the second one is much cheaper than the first.</p>
+<p>This behavior mirrors how large commercial providers run their systems internally. vLLM makes these optimizations visible and measurable, which makes it a useful tool for understanding real-world inference economics.</p>
+<p>In the sections that follow, I’ll use vLLM to measure how much “token usage” actually turns into GPU work, and how much is silently absorbed by caching.</p>
+<hr>
+<h2 id="methodology-coming-soon">Methodology (Coming Soon)<a href="#methodology-coming-soon" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<p>In this section, I’ll outline the experimental setup used to measure prefix cache hits, logical token usage, and effective compute cost using vLLM on Apple Silicon.</p>
+<p>This includes:</p>
+<ul>
+<li>Model selection</li>
+<li>Prompt construction</li>
+<li>Cache-friendly vs cache-hostile workloads</li>
+<li>Metrics collection</li>
+<li>Visualization pipeline</li>
+</ul>
+<hr>
+<h2 id="results-what-vllms-docs-and-metrics-already-tell-us">Results (What vLLM’s Docs and Metrics Already Tell Us)<a href="#results-what-vllms-docs-and-metrics-already-tell-us" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<p>Even before running custom benchmarks, vLLM’s documentation makes the core point clear: “token usage” is not the same thing as “compute performed.”</p>
+<h3 id="automatic-prefix-caching-skipping-redundant-prefill">Automatic Prefix Caching: Skipping Redundant Prefill<a href="#automatic-prefix-caching-skipping-redundant-prefill" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>vLLM implements <strong>prefix caching</strong> (also called Automatic Prefix Caching / APC): it caches the KV (key/value) cache for previously processed requests and reuses it when a new request shares the same prefix, allowing the engine to skip computing the shared portion of the prompt. :contentReference[oaicite:0]{index=0}</p>
+<p>This is especially relevant for coding and agentic workflows, where prompts often look like:</p>
+<ul>
+<li>a large, repeated system prompt + repo context (stable prefix)</li>
+<li>a small changing instruction (tiny suffix)</li>
+</ul>
+<p>In that shape of workload, the <em>logical</em> number of prompt tokens can stay high, while the <em>actual prefill compute</em> drops dramatically after the first request, because the expensive prefix work is reused. :contentReference[oaicite:1]{index=1}</p>
+<h3 id="the-metrics-make-cache-hits-measurable">The Metrics Make Cache Hits Measurable<a href="#the-metrics-make-cache-hits-measurable" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>When serving via the OpenAI-compatible API server, vLLM exposes Prometheus metrics at the <code>/metrics</code> endpoint. :contentReference[oaicite:2]{index=2}</p>
+<p>The key counters for this post are:</p>
+<ul>
+<li><code>vllm:prefix_cache_queries</code> — queried tokens</li>
+<li><code>vllm:prefix_cache_hits</code> — tokens found in cache</li>
+<li><code>vllm:prompt_tokens</code> — prefill tokens processed</li>
+<li><code>vllm:generation_tokens</code> — generation tokens processed :contentReference[oaicite:3]{index=3}</li>
+</ul>
+<p>These let us compute a simple, concrete signal:</p>
+<blockquote>
+<p><strong>Prefix cache hit rate ≈ prefix_cache_hits / prefix_cache_queries</strong> :contentReference[oaicite:4]{index=4}</p>
+</blockquote>
+<p>Even without a GPU profiler, these counters reveal whether repeated prompts are being served through reuse vs fresh compute.</p>
+<h3 id="what-we-should-expect-to-observe">What We Should Expect to Observe<a href="#what-we-should-expect-to-observe" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>Given how vLLM’s prefix caching is designed (cache KV blocks for processed prefixes; reuse them for subsequent matching prefixes), we should expect two distinct regimes. :contentReference[oaicite:5]{index=5}</p>
+<p><strong>Cache-friendly workload (shared prefix):</strong></p>
+<ul>
+<li><code>vllm:prefix_cache_hits</code> grows rapidly as the same context repeats</li>
+<li>prefill work for repeated prefixes is skipped via reuse</li>
+<li>time-to-first-token (TTFT) generally improves as more requests become cache hits :contentReference[oaicite:6]{index=6}</li>
+</ul>
+<p><strong>Cache-hostile workload (randomized prefixes):</strong></p>
+<ul>
+<li><code>vllm:prefix_cache_hits</code> stays low relative to queries</li>
+<li>more work is done as fresh prefill compute</li>
+<li>TTFT remains consistently higher :contentReference[oaicite:7]{index=7}</li>
+</ul>
+<h3 id="why-this-matters-for-token-cost">Why This Matters for “Token Cost”<a href="#why-this-matters-for-token-cost" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>Token dashboards count <strong>logical tokens</strong> (prompt + output length). Prefix caching changes the economics because a large fraction of prompt processing can be reused when prefixes repeat.</p>
+<p>So the same “10,000-token prompt” can be <em>expensive once</em> and <em>cheap many times</em>—and vLLM’s metrics make that gap visible. :contentReference[oaicite:8]{index=8}</p>
+<hr>
+]]></content></item><item><title>Helloworld</title><link>https://voxelvoxelvoxel.github.io/blog/docs/helloworld/</link><pubDate>Fri, 26 Dec 2025 22:24:01 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/docs/helloworld/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped"></content></item><item><title>Helloworld</title><link>https://voxelvoxelvoxel.github.io/blog/posts/helloworld/</link><pubDate>Fri, 26 Dec 2025 22:24:01 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/posts/helloworld/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped">&lt;p>This is my first blog post!&lt;/p>
 </content></item></channel></rss>
