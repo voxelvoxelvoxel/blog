@@ -1,4 +1,410 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>My Blog</title><link>https://voxelvoxelvoxel.github.io/blog/</link><description>Recent content on My Blog</description><generator>Hugo -- 0.155.2</generator><language>en-us</language><lastBuildDate>Mon, 02 Feb 2026 09:40:44 -0800</lastBuildDate><atom:link href="https://voxelvoxelvoxel.github.io/blog/index.xml" rel="self" type="application/rss+xml"/><item><title>Inference</title><link>https://voxelvoxelvoxel.github.io/blog/posts/inference/</link><pubDate>Mon, 02 Feb 2026 09:40:44 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/posts/inference/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped"><![CDATA[<p>In the era of <em>Software 2.0</em> Linus Torvalds has spoken positively about “vibe coding.”</p>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>My Blog</title><link>https://voxelvoxelvoxel.github.io/blog/</link><description>Recent content on My Blog</description><generator>Hugo -- 0.162.1</generator><language>en-us</language><lastBuildDate>Tue, 02 Jun 2026 00:00:00 -0800</lastBuildDate><atom:link href="https://voxelvoxelvoxel.github.io/blog/index.xml" rel="self" type="application/rss+xml"/><item><title>Shader Compilation: From Source to Silicon</title><link>https://voxelvoxelvoxel.github.io/blog/posts/shader-compilation/</link><pubDate>Tue, 02 Jun 2026 00:00:00 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/posts/shader-compilation/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped"><![CDATA[<h1 id="shader-compilation-from-source-to-silicon">Shader Compilation: From Source to Silicon<a href="#shader-compilation-from-source-to-silicon" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h1>
+<p>When you write a shader, the code you type is about as far from GPU execution as Java source is from x86 machine code. Between your <code>float4 main()</code> and actual transistors switching, there&rsquo;s a multi-stage pipeline involving language front-ends, portable intermediate representations, driver-level optimizing compilers, and kernel-mode memory allocation.</p>
+<p>This post covers the general pipeline first, then follows a concrete example all the way from GLSL source to AMD GCN ISA — using real tool output at each step.</p>
+<hr>
+<h2 id="part-1-the-general-pipeline">Part 1: The General Pipeline<a href="#part-1-the-general-pipeline" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<h3 id="stage-1--source-parsing-and-preprocessing">Stage 1 — Source Parsing and Preprocessing<a href="#stage-1--source-parsing-and-preprocessing" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>The compiler starts by reading shader source. A preprocessor handles <code>#include</code> directives, <code>#define</code> macros, and conditional compilation (<code>#ifdef USE_NORMAL_MAP</code>). The result is a single expanded translation unit with all includes resolved and macros substituted.</p>
+<p>This is where <strong>shader permutations</strong> originate. A single <code>.hlsl</code> file with 10 boolean <code>#define</code> flags can produce up to 1024 distinct translation units before a single line of actual compilation happens. MJP has <a href="https://therealmjp.github.io/posts/shader-permutations-part1/">written extensively</a> about why this combinatorial explosion is one of the harder unsolved problems in real-time rendering tooling.</p>
+<h3 id="stage-2--lexing-parsing-and-ast-construction">Stage 2 — Lexing, Parsing, and AST Construction<a href="#stage-2--lexing-parsing-and-ast-construction" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>The preprocessed source is tokenized into a stream of tokens — keywords, identifiers, operators, literals. The parser consumes this stream and constructs an <strong>Abstract Syntax Tree (AST)</strong>: a hierarchical data structure representing the program&rsquo;s syntactic structure.</p>
+<p>At this stage:</p>
+<ul>
+<li><strong>Type checking</strong> — does this operation make sense for these types?</li>
+<li><strong>Semantic validation</strong> — are all variables declared? Are return types correct?</li>
+<li><strong>Constant folding</strong> — <code>3.0 * 4.0</code> becomes <code>12.0</code> in the AST</li>
+</ul>
+<p>Tools: DXC (DirectX Shader Compiler) for HLSL, glslang for GLSL, clang for MSL.</p>
+<h3 id="stage-3--ir-generation">Stage 3 — IR Generation<a href="#stage-3--ir-generation" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>The AST is lowered into an <strong>Intermediate Representation (IR)</strong>. This is the central artifact of the compilation pipeline — a structured, analyzable representation that is portable across hardware.</p>
+<p>Key IRs in the graphics world:</p>
+<table>
+	<thead>
+			<tr>
+					<th>API</th>
+					<th>IR Format</th>
+					<th>Notes</th>
+			</tr>
+	</thead>
+	<tbody>
+			<tr>
+					<td>Vulkan</td>
+					<td><strong>SPIR-V</strong></td>
+					<td>Binary, 32-bit word stream, SSA form, defined by Khronos</td>
+			</tr>
+			<tr>
+					<td>DX12</td>
+					<td><strong>DXIL</strong></td>
+					<td>LLVM 3.7 bitcode + DX metadata, validated by <code>DXIL.dll</code></td>
+			</tr>
+			<tr>
+					<td>Metal</td>
+					<td><strong>AIR</strong></td>
+					<td>Apple&rsquo;s LLVM IR bitcode, stored in <code>.metallib</code> containers</td>
+			</tr>
+	</tbody>
+</table>
+<p>Worth being precise about terminology here: these are not bytecode in the Java or Python sense. Bytecode implies a virtual machine that interprets a linear instruction stream. SPIR-V, DXIL, and AIR are <strong>serialized compiler IRs</strong> — data structures encoding types, SSA values, and operations that a backend compiler consumes. No driver ever &ldquo;interprets&rdquo; SPIR-V; it always compiles it.</p>
+<h4 id="ssa-form">SSA Form<a href="#ssa-form" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h4>
+<p>Static Single Assignment means every variable is assigned exactly once. If a value changes, a new variable is created. This makes data flow analysis straightforward: you always know where a value came from without alias analysis.</p>
+<pre tabindex="0"><code>; Non-SSA
+x = 1
+x = x + 2
+
+; SSA equivalent
+x1 = 1
+x2 = x1 + 2
+</code></pre><p>SPIR-V&rsquo;s SSA encoding is one reason driver compilers can optimize shader code aggressively — the data flow graph is explicit in the binary.</p>
+<h3 id="stage-4--mid-level-optimizations">Stage 4 — Mid-Level Optimizations<a href="#stage-4--mid-level-optimizations" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>Before hardware-specific lowering, optimization passes run on the IR:</p>
+<ul>
+<li><strong>Dead code elimination</strong> — unreachable branches, outputs never consumed by the next stage</li>
+<li><strong>Constant propagation</strong> — if <code>x = 4.0</code> is known at compile time, every use of <code>x</code> becomes <code>4.0</code></li>
+<li><strong>Loop unrolling</strong> — small loops over fixed iteration counts get unrolled; relevant for texture fetch loops</li>
+<li><strong>Function inlining</strong> — virtually all shader function calls are inlined. GPUs have no hardware call stack; implementing one via simulated stack in registers is expensive enough that inlining is less an optimization and more just how it works</li>
+<li><strong>Algebraic simplification</strong> — <code>x * 1.0</code>, <code>x + 0.0</code>, <code>pow(x, 1.0)</code> → <code>x</code></li>
+</ul>
+<h3 id="stage-5--driver-level-jit-compilation">Stage 5 — Driver-Level JIT Compilation<a href="#stage-5--driver-level-jit-compilation" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>This is where portability ends. The driver&rsquo;s compiler receives the portable IR and compiles it to the actual GPU&rsquo;s <strong>Instruction Set Architecture (ISA)</strong> — the binary machine code the hardware executes.</p>
+<p>This happens almost entirely in <strong>user space</strong> (inside the driver&rsquo;s usermode <code>.dll</code> or <code>.so</code>). The kernel mode driver only receives the final ISA binary, validates it lightly, allocates GPU-accessible memory, and copies it in. All the heavy lifting — register allocation, instruction scheduling, ISA emission — is done in usermode.</p>
+<pre tabindex="0"><code>User space:   SPIR-V → driver IR → optimizations → register alloc → ISA bytes
+                                                                          |
+                                                                    ioctl() call
+                                                                          |
+Kernel space: validate → alloc GPU memory → copy ISA → record address
+</code></pre><p>The kernel separation is intentional: letting the kernel run an arbitrary optimizing compiler would be a large attack surface, and a driver update shipping a new <code>.so</code> without touching the kernel module is much cleaner.</p>
+<p>This is also why <strong>PSO (Pipeline State Object) compilation</strong> has measurable latency. Register allocation is NP-hard in the general case. A complex shader encountered for the first time may take 50–200ms to compile. In a title with thousands of shader permutations this is the source of first-run stutter.</p>
+<p>Mitigation mechanisms:</p>
+<ul>
+<li><code>VkPipelineCache</code> (Vulkan) — serialize compiled ISA to disk, reuse on subsequent runs</li>
+<li><code>ID3D12PipelineLibrary</code> (DX12) — same</li>
+<li><code>MTLBinaryArchive</code> (Metal) — same</li>
+<li>In-game &ldquo;shader compilation&rdquo; screens — burning through PSO compilation ahead of time to populate caches</li>
+</ul>
+<h3 id="stage-6--pso-linking-and-fixup">Stage 6 — PSO Linking and Fixup<a href="#stage-6--pso-linking-and-fixup" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>For rasterization pipelines, compiled vertex and fragment shaders must be <strong>linked</strong> — the output signature of the VS must match the input signature of the FS. Input/output locations, interpolation qualifiers, and built-ins are reconciled. The driver may patch the ISA at this stage (e.g. adjusting export targets).</p>
+<hr>
+<h2 id="part-2-following-one-shader-from-source-to-isa">Part 2: Following One Shader From Source to ISA<a href="#part-2-following-one-shader-from-source-to-isa" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<p>All output below was produced by running real tools. The toolchain:</p>
+<ul>
+<li><strong>glslang 15.1.0</strong> — GLSL → SPIR-V</li>
+<li><strong>spirv-tools 2025.1</strong> — SPIR-V validation and optimization (<code>spirv-opt</code>, <code>spirv-dis</code>)</li>
+<li><strong>LLVM 18 / llc</strong> — SPIR-V-equivalent LLVM IR → AMDGCN ISA (<code>-mcpu=gfx1030</code>, RDNA2)</li>
+</ul>
+<p>The example shader:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-glsl" data-lang="glsl"><span style="display:flex;"><span><span style="color:#75715e">#version 450</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>layout(location <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">in</span> <span style="color:#66d9ef">vec2</span> inUV;
+</span></span><span style="display:flex;"><span>layout(set <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>, binding <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">uniform</span> <span style="color:#66d9ef">sampler2D</span> albedoTex;
+</span></span><span style="display:flex;"><span>layout(location <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">out</span> <span style="color:#66d9ef">vec4</span> outColor;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> main() {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">vec4</span> color <span style="color:#f92672">=</span> texture(albedoTex, inUV);
+</span></span><span style="display:flex;"><span>    outColor <span style="color:#f92672">=</span> color <span style="color:#f92672">*</span> <span style="color:#66d9ef">vec4</span>(<span style="color:#ae81ff">1.0</span>, <span style="color:#ae81ff">0.8</span>, <span style="color:#ae81ff">0.6</span>, <span style="color:#ae81ff">1.0</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Simple on purpose: one texture sample, one vec4 multiply. Enough to see each stage clearly without noise.</p>
+<hr>
+<h3 id="step-1--glsl--spir-v">Step 1 — GLSL → SPIR-V<a href="#step-1--glsl--spir-v" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>glslangValidator -V shader.frag -o shader.spv
+</span></span></code></pre></div><p>732 bytes of binary. Disassembled with <code>spirv-dis</code>:</p>
+<pre tabindex="0"><code class="language-spirv" data-lang="spirv">; SPIR-V
+; Version: 1.0
+; Generator: Khronos Glslang Reference Front End; 11
+; Bound: 28
+; Schema: 0
+               OpCapability Shader
+          %1 = OpExtInstImport &#34;GLSL.std.450&#34;
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main &#34;main&#34; %inUV %outColor
+               OpExecutionMode %main OriginUpperLeft
+               OpSource GLSL 450
+               OpName %main &#34;main&#34;
+               OpName %color &#34;color&#34;
+               OpName %albedoTex &#34;albedoTex&#34;
+               OpName %inUV &#34;inUV&#34;
+               OpName %outColor &#34;outColor&#34;
+               OpDecorate %albedoTex Binding 0
+               OpDecorate %albedoTex DescriptorSet 0
+               OpDecorate %inUV Location 0
+               OpDecorate %outColor Location 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+%_ptr_Function_v4float = OpTypePointer Function %v4float
+         %10 = OpTypeImage %float 2D 0 0 0 1 Unknown
+         %11 = OpTypeSampledImage %10
+%_ptr_UniformConstant_11 = OpTypePointer UniformConstant %11
+  %albedoTex = OpVariable %_ptr_UniformConstant_11 UniformConstant
+    %v2float = OpTypeVector %float 2
+%_ptr_Input_v2float = OpTypePointer Input %v2float
+       %inUV = OpVariable %_ptr_Input_v2float Input
+%_ptr_Output_v4float = OpTypePointer Output %v4float
+   %outColor = OpVariable %_ptr_Output_v4float Output
+    %float_1 = OpConstant %float 1
+%float_0_800000012 = OpConstant %float 0.800000012
+%float_0_600000024 = OpConstant %float 0.600000024
+         %26 = OpConstantComposite %v4float %float_1 %float_0_800000012 %float_0_600000024 %float_1
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+      %color = OpVariable %_ptr_Function_v4float Function
+         %14 = OpLoad %11 %albedoTex
+         %18 = OpLoad %v2float %inUV
+         %19 = OpImageSampleImplicitLod %v4float %14 %18
+               OpStore %color %19
+         %22 = OpLoad %v4float %color
+         %27 = OpFMul %v4float %22 %26
+               OpStore %outColor %27
+               OpReturn
+               OpFunctionEnd
+</code></pre><p>A few things worth noting:</p>
+<p><strong>The binary encoding.</strong> Each instruction is one or more 32-bit words. The first word packs <code>[word_count:16 | opcode:16]</code>. The file opens with magic number <code>0x07230203</code>. The <code>Bound: 28</code> header field is the highest SSA ID used — the entire shader fits in 28 IDs.</p>
+<p><strong>Debug names are optional metadata.</strong> <code>OpName %color &quot;color&quot;</code> and friends give human-readable names to SSA IDs. These survive into the debug binary but get stripped by <code>spirv-opt --strip-debug</code>.</p>
+<p><strong>Decorations carry binding metadata.</strong> <code>OpDecorate %albedoTex Binding 0</code> and <code>DescriptorSet 0</code> are annotations that sit outside the instruction stream. The driver reads these to wire up descriptor sets — they don&rsquo;t affect the execution logic.</p>
+<p><strong>The <code>%color</code> variable is a <code>Function</code>-storage-class pointer</strong> — a local variable in function scope. Notice the pattern: <code>OpStore %color %19</code> writes the sample result, then <code>OpLoad %v4float %color</code> reads it back immediately before the multiply. The next step eliminates this.</p>
+<p><em>Validation:</em></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>spirv-val shader.spv
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># → (no output, exit 0)</span>
+</span></span></code></pre></div><hr>
+<h3 id="step-2--spir-v-optimization">Step 2 — SPIR-V Optimization<a href="#step-2--spir-v-optimization" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>spirv-opt --strip-debug --eliminate-dead-code-aggressive <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>          --eliminate-local-single-block <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>          --eliminate-local-single-store <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>          --simplify-instructions <span style="color:#ae81ff">\
+</span></span></span><span style="display:flex;"><span>          -O shader.spv -o shader_opt.spv
+</span></span></code></pre></div><p>572 bytes — 160 bytes smaller. Disassembly:</p>
+<pre tabindex="0"><code class="language-spirv" data-lang="spirv">; SPIR-V
+; Version: 1.0
+; Generator: Khronos Glslang Reference Front End; 11
+; Bound: 28
+               OpCapability Shader
+          %1 = OpExtInstImport &#34;GLSL.std.450&#34;
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %4 &#34;main&#34; %17 %21
+               OpExecutionMode %4 OriginUpperLeft
+               OpDecorate %13 Binding 0
+               OpDecorate %13 DescriptorSet 0
+               OpDecorate %17 Location 0
+               OpDecorate %21 Location 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+    %v4float = OpTypeVector %float 4
+         %10 = OpTypeImage %float 2D 0 0 0 1 Unknown
+         %11 = OpTypeSampledImage %10
+%_ptr_UniformConstant_11 = OpTypePointer UniformConstant %11
+         %13 = OpVariable %_ptr_UniformConstant_11 UniformConstant
+    %v2float = OpTypeVector %float 2
+%_ptr_Input_v2float = OpTypePointer Input %v2float
+         %17 = OpVariable %_ptr_Input_v2float Input
+%_ptr_Output_v4float = OpTypePointer Output %v4float
+         %21 = OpVariable %_ptr_Output_v4float Output
+    %float_1 = OpConstant %float 1
+%float_0_800000012 = OpConstant %float 0.800000012
+%float_0_600000024 = OpConstant %float 0.600000024
+         %26 = OpConstantComposite %v4float %float_1 %float_0_800000012 %float_0_600000024 %float_1
+          %4 = OpFunction %void None %3
+          %5 = OpLabel
+         %14 = OpLoad %11 %13
+         %18 = OpLoad %v2float %17
+         %19 = OpImageSampleImplicitLod %v4float %14 %18
+         %27 = OpFMul %v4float %19 %26
+               OpStore %21 %27
+               OpReturn
+               OpFunctionEnd
+</code></pre><p>What changed: the <code>%color</code> local variable is gone. The <code>OpStore %color %19</code> / <code>OpLoad %v4float %color</code> round-trip was eliminated by <code>--eliminate-local-single-store</code> — <code>%19</code> (the sample result) feeds directly into <code>OpFMul</code>. The debug names (<code>OpName</code>) are gone via <code>--strip-debug</code>. The function body went from 8 instructions to 6.</p>
+<p>This is the SPIR-V that a Vulkan driver would receive at <code>vkCreateGraphicsPipelines</code>.</p>
+<hr>
+<h3 id="step-3--amdgcn-isa-via-llvm">Step 3 — AMDGCN ISA via LLVM<a href="#step-3--amdgcn-isa-via-llvm" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>The SPIR-V → LLVM IR translation for Vulkan GLSL SPIR-V requires a full driver stack (Mesa&rsquo;s <code>spirv_to_nir</code> + ACO). To show the ISA step in isolation we compile the equivalent arithmetic directly as LLVM IR and feed it to <code>llc</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>llc-18 -march<span style="color:#f92672">=</span>amdgcn -mcpu<span style="color:#f92672">=</span>gfx1030 -filetype<span style="color:#f92672">=</span>asm shader.ll -o shader_gfx1030.s
+</span></span></code></pre></div><p>Target: <code>gfx1030</code> = RDNA2 (RX 6000 series). Output (instruction section only):</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-asm" data-lang="asm"><span style="display:flex;"><span>shader_arithmetic:
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">s_clause</span> <span style="color:#ae81ff">0x1</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">s_load_dwordx4</span> <span style="color:#66d9ef">s</span>[<span style="color:#ae81ff">0</span>:<span style="color:#ae81ff">3</span>], <span style="color:#66d9ef">s</span>[<span style="color:#ae81ff">4</span>:<span style="color:#ae81ff">5</span>], <span style="color:#ae81ff">0x8</span>       <span style="color:#75715e">; load r,g,b,a from kernel args
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">s_load_dwordx2</span> <span style="color:#66d9ef">s</span>[<span style="color:#ae81ff">4</span>:<span style="color:#ae81ff">5</span>], <span style="color:#66d9ef">s</span>[<span style="color:#ae81ff">4</span>:<span style="color:#ae81ff">5</span>], <span style="color:#ae81ff">0x0</span>        <span style="color:#75715e">; load output pointer
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">v_mov_b32_e32</span> <span style="color:#66d9ef">v4</span>, <span style="color:#ae81ff">0</span>                        <span style="color:#75715e">; offset = 0 for store
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">s_waitcnt</span> <span style="color:#66d9ef">lgkmcnt</span>(<span style="color:#ae81ff">0</span>)                       <span style="color:#75715e">; wait for SGPR loads
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">v_mul_f32_e64</span> <span style="color:#66d9ef">v1</span>, <span style="color:#ae81ff">0x3f4ccccd</span>, <span style="color:#66d9ef">s1</span>          <span style="color:#75715e">; g * 0.8
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">v_mul_f32_e64</span> <span style="color:#66d9ef">v2</span>, <span style="color:#ae81ff">0x3f19999a</span>, <span style="color:#66d9ef">s2</span>          <span style="color:#75715e">; b * 0.6
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">v_mov_b32_e32</span> <span style="color:#66d9ef">v0</span>, <span style="color:#66d9ef">s0</span>                       <span style="color:#75715e">; r (move to VGPR, * 1.0 eliminated)
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">v_mov_b32_e32</span> <span style="color:#66d9ef">v3</span>, <span style="color:#66d9ef">s3</span>                       <span style="color:#75715e">; a (move to VGPR, * 1.0 eliminated)
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">global_store_dwordx4</span> <span style="color:#66d9ef">v4</span>, <span style="color:#66d9ef">v</span>[<span style="color:#ae81ff">0</span>:<span style="color:#ae81ff">3</span>], <span style="color:#66d9ef">s</span>[<span style="color:#ae81ff">4</span>:<span style="color:#ae81ff">5</span>]   <span style="color:#75715e">; store all 4 channels at once
+</span></span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">s_endpgm</span>
+</span></span></code></pre></div><p>Compiler metadata at the bottom of the <code>.s</code> file:</p>
+<pre tabindex="0"><code>; NumSgprs: 6
+; NumVgprs: 5
+; ScratchSize: 0
+; Occupancy: 16
+</code></pre><p>A few things worth unpacking:</p>
+<p><strong>The <code>* 1.0</code> multiplications were eliminated.</strong> We started with four <code>fmul</code> instructions. Only two <code>v_mul_f32_e64</code> appear — G (<code>0x3f4ccccd</code> = 0.8) and B (<code>0x3f19999a</code> = 0.6). R and A became plain <code>v_mov_b32_e32</code> — a register move with no arithmetic. The LLVM backend recognized <code>x * 1.0</code> as a no-op under <code>fast</code> math flags and lowered it to a mov.</p>
+<p><strong>Verify the constants.</strong> The hex values in the ISA are IEEE 754 single-precision:</p>
+<pre tabindex="0"><code>0x3f4ccccd = 0.800000012  (closest f32 to 0.8)
+0x3f19999a = 0.600000024  (closest f32 to 0.6)
+</code></pre><p>These match the <code>OpConstant</code> values in the SPIR-V exactly.</p>
+<p><strong><code>s_clause</code> + <code>s_load</code> + <code>s_waitcnt</code>.</strong> The two scalar loads (<code>s_load_dwordx4</code>, <code>s_load_dwordx2</code>) are grouped by <code>s_clause 0x1</code> (telling the hardware they&rsquo;re a pair) and followed by <code>s_waitcnt lgkmcnt(0)</code> — stall until both LDS/SGPR memory operations complete. This is the latency hiding pattern: issue scalar loads early, do other work, then wait only when you actually need the result. Here there&rsquo;s not much independent work to fill the gap, but in a real PBR shader there would be.</p>
+<p><strong><code>global_store_dwordx4</code></strong> writes all four channels in a single 128-bit store — the backend merged the four individual stores into one vector operation.</p>
+<p><strong>5 VGPRs, 6 SGPRs, occupancy 16.</strong> This is about as low as register pressure gets. At 5 VGPRs on RDNA2, the hardware can run the maximum 16 waves per compute unit simultaneously.</p>
+<p><em>Reference: <a href="https://gpuopen.com/amd-rdna2-shader-instruction-set-architecture/">AMD RDNA2 ISA Reference Manual — GPUOpen</a></em><br>
+<em>Reference: <a href="https://gpuopen.com/amd-rdna3-shader-instruction-set-architecture/">AMD RDNA3 ISA Reference Manual — GPUOpen</a></em></p>
+<hr>
+<h3 id="caveat-on-the-isa-step">Caveat on the ISA Step<a href="#caveat-on-the-isa-step" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<p>The LLVM path above uses the <code>amdgpu_kernel</code> (compute) calling convention to stay within what <code>llc</code> can compile standalone. A real fragment shader uses <code>amdgpu_ps</code>, goes through Mesa&rsquo;s <code>spirv_to_nir</code> + ACO pipeline, and looks different: inputs arrive as interpolated varyings via <code>v_interp_p1_f32</code> / <code>v_interp_p2_f32</code>, and the output uses <code>exp</code> (export) instructions rather than a global store. The arithmetic core — the <code>v_mul_f32</code> instructions — is the same.</p>
+<p>To capture real fragment shader ISA from the full RADV pipeline, set <code>RADV_DEBUG=shaders</code> before launching a Vulkan application. Mesa will dump the ISA for every compiled shader to stderr.</p>
+<hr>
+<h2 id="the-full-journey">The Full Journey<a href="#the-full-journey" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<pre tabindex="0"><code>shader.frag (GLSL source, 7 lines)
+    ↓  glslangValidator -V
+shader.spv (SPIR-V binary, 732 bytes, 29 instructions)
+    ↓  spirv-opt -O --strip-debug ...
+shader_opt.spv (SPIR-V optimized, 572 bytes, 6 instructions in main)
+    ↓  [driver: spirv_to_nir → NIR passes → ACO]
+    ↓  [shown here via: llc -march=amdgcn -mcpu=gfx1030]
+shader_gfx1030.s (AMDGCN ISA, 10 instructions, 5 VGPRs, occupancy 16)
+</code></pre><hr>
+<h2 id="a-few-things-worth-taking-away">A Few Things Worth Taking Away<a href="#a-few-things-worth-taking-away" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<p><strong>SPIR-V/DXIL/AIR are not bytecode.</strong> They&rsquo;re serialized compiler IRs. No driver interprets them; they&rsquo;re always compiled to hardware ISA. The industry uses &ldquo;shader bytecode&rdquo; loosely and it&rsquo;s technically wrong.</p>
+<p><strong>All shader functions are inlined.</strong> GPUs have no hardware call stack. Inlining is the execution model, not an optimization over it.</p>
+<p><strong>The optimizer sees through <code>* 1.0</code>.</strong> Even with four explicit <code>fmul</code> instructions in the LLVM IR, the backend emitted only two. Algebraic simplification is not just a mid-level pass — it happens during instruction selection too.</p>
+<p><strong>Driver JIT compilation is expensive.</strong> Register allocation is NP-hard in the general case. PSO compilation latency is real and measurable. Pipeline caches exist to amortize this cost across runs.</p>
+<p><strong>Register pressure determines occupancy.</strong> Fewer VGPRs per wave means more waves in flight, which is how GPUs hide memory latency. This shader used 5 — as low as it gets.</p>
+<p><strong>Driver compilation is entirely user space.</strong> The kernel only places the final ISA binary into GPU memory.</p>
+<hr>
+<h2 id="references">References<a href="#references" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h2>
+<h3 id="specifications">Specifications<a href="#specifications" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<ul>
+<li><a href="https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html">SPIR-V Specification — Khronos Registry</a></li>
+<li><a href="https://github.com/microsoft/DirectXShaderCompiler/blob/main/docs/DXIL.rst">DXIL Specification — Microsoft / DirectXShaderCompiler</a></li>
+<li><a href="https://gpuopen.com/amd-rdna2-shader-instruction-set-architecture/">AMD RDNA2 ISA Reference Manual — GPUOpen</a></li>
+<li><a href="https://gpuopen.com/amd-rdna3-shader-instruction-set-architecture/">AMD RDNA3 ISA Reference Manual — GPUOpen</a></li>
+</ul>
+<h3 id="mesa--radv--aco">Mesa / RADV / ACO<a href="#mesa--radv--aco" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<ul>
+<li><a href="https://docs.mesa3d.org/nir/index.html">Mesa NIR Documentation</a></li>
+<li><a href="https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/compiler/spirv/spirv_to_nir.c">Mesa source: spirv_to_nir.c</a></li>
+<li><a href="https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/amd/compiler">Mesa source: ACO backend</a></li>
+<li><a href="https://xdc2019.x.org/event/5/contributions/334/">ACO: A New Compiler Backend for AMD GPUs — Marek Olšák, XDC 2019</a></li>
+</ul>
+<h3 id="related-reading">Related Reading<a href="#related-reading" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<ul>
+<li><a href="https://therealmjp.github.io/posts/shader-permutations-part1/">The Shader Permutation Problem — MJP</a></li>
+<li><a href="https://therealmjp.github.io/posts/a-quick-note-on-shader-compilers/">A Quick Note on Shader Compilers — MJP</a></li>
+<li><a href="https://gpuopen.com/performance/">AMD RDNA2 Performance Guide — GPUOpen</a></li>
+<li><a href="https://www.khronos.org/blog/vulkan-pipeline-caching">Vulkan Pipeline Cache — Khronos Blog</a></li>
+<li><a href="https://github.com/ValveSoftware/Fossilize">Fossilize: Vulkan PSO cache serialization — Valve</a></li>
+<li><a href="https://fgiesen.wordpress.com/2011/07/09/a-trip-through-the-graphics-pipeline-2011-index/">A Trip Through the Graphics Pipeline 2011 — Fabian Giesen</a></li>
+</ul>
+<h3 id="tooling">Tooling<a href="#tooling" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<ul>
+<li><a href="https://github.com/microsoft/DirectXShaderCompiler">DirectXShaderCompiler (DXC)</a></li>
+<li><a href="https://github.com/KhronosGroup/glslang">glslang</a></li>
+<li><a href="https://github.com/KhronosGroup/SPIRV-Tools">SPIRV-Tools (spirv-dis, spirv-opt, spirv-val)</a></li>
+<li><a href="https://github.com/KhronosGroup/SPIRV-Cross">spirv-cross</a></li>
+<li><a href="https://llvm.org/docs/AMDGPUUsage.html">LLVM AMDGPU backend</a></li>
+</ul>
+<h3 id="books">Books<a href="#books" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<ul>
+<li><em>Engineering a Compiler</em> — Cooper &amp; Torczon (2nd ed.)</li>
+<li><em>Computer Organization and Design</em> — Patterson &amp; Hennessy</li>
+<li><em>Real-Time Rendering</em> (4th ed.) — Akenine-Möller et al.</li>
+</ul>
+<h3 id="kernel">Kernel<a href="#kernel" class="anchor" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"></path>
+      <line x1="8" y1="12" x2="16" y2="12"></line>
+   </svg></a></h3>
+<ul>
+<li><a href="https://github.com/torvalds/linux/tree/master/drivers/gpu/drm/amd/amdgpu">Linux amdgpu driver source</a></li>
+</ul>
+]]></content></item><item><title>Inference</title><link>https://voxelvoxelvoxel.github.io/blog/posts/inference/</link><pubDate>Mon, 02 Feb 2026 09:40:44 -0800</pubDate><guid>https://voxelvoxelvoxel.github.io/blog/posts/inference/</guid><description>&amp;lt;no value&amp;gt;</description><content type="text/html" mode="escaped"><![CDATA[<p>In the era of <em>Software 2.0</em> Linus Torvalds has spoken positively about “vibe coding.”</p>
 <p><img src="linus-vibe-coding.png" alt="Linus Torvalds on vibe coding"></p>
 <p>Tools like Claude Code have become default companions for many solopreneurs building and shipping products.</p>
 <p>This is a fundamental change in how software is produced.</p>
