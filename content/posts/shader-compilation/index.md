@@ -4,8 +4,6 @@ date = '2026-06-02T00:00:00-08:00'
 draft = false
 +++
 
-# Shader Compilation: From Source to Silicon
-
 When you write a shader, the code you type is about as far from GPU execution as Java source is from x86 machine code. Between your `float4 main()` and actual transistors switching, there's a multi-stage pipeline involving language front-ends, portable intermediate representations, driver-level optimizing compilers, and kernel-mode memory allocation.
 
 This post covers the general pipeline first, then follows a concrete example all the way from GLSL source to AMD GCN ISA — using real tool output at each step.
